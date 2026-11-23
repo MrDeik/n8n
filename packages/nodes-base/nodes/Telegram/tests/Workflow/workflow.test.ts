@@ -51,6 +51,41 @@ describe('Telegram', () => {
 		new NodeTestHarness().setupTests({ credentials, workflowFiles: ['workflow.json'] });
 	});
 
+	describe('Edit a rich message', () => {
+		beforeAll(() => {
+			nock(credentials.telegramApi.baseUrl)
+				.post('/bottestToken/editMessageText', {
+					chat_id: '@example',
+					message_id: '42',
+					rich_message: {
+						html: '<p><a href="tg://user?id=123">Ada</a></p><hr/><footer>Updated</footer>',
+						is_rtl: false,
+						skip_entity_detection: true,
+					},
+					reply_markup: { inline_keyboard: [[{ text: 'Refresh', callback_data: 'refresh' }]] },
+				})
+				.reply(200, {
+					ok: true,
+					result: {
+						message_id: 42,
+						rich_message: {
+							blocks: [
+								{ type: 'paragraph', text: { type: 'url', url: 'tg://user?id=123', text: 'Ada' } },
+								{ type: 'divider' },
+								{ type: 'footer', text: 'Updated' },
+							],
+						},
+					},
+				});
+		});
+
+		new NodeTestHarness().setupTests({
+			credentials,
+			workflowFiles: ['editRichMessage.workflow.json'],
+			customAssertions: () => expect(nock.isDone()).toBe(true),
+		});
+	});
+
 	describe('Binary Data and Reply Markup', () => {
 		beforeAll(() => {
 			const mock = nock(credentials.telegramApi.baseUrl);

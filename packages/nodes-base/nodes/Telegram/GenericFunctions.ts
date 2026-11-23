@@ -10,7 +10,7 @@ import type {
 	RequestUrl,
 	WithRequestTarget,
 } from 'n8n-workflow';
-import { NodeApiError, requestPath, requestUrl } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError, requestPath, requestUrl } from 'n8n-workflow';
 
 import { getSendAndWaitConfig } from '../../utils/sendAndWait/utils';
 import { createUtmCampaignLink } from '../../utils/utilities';
@@ -286,6 +286,43 @@ export function getImageBySize(photos: IDataObject[], size: string): IDataObject
 
 export function getPropertyName(operation: string) {
 	return operation.replace('send', '').toLowerCase();
+}
+
+export function getRichMessage(
+	this: IExecuteFunctions,
+	index: number,
+	format: 'html' | 'markdown' | 'json',
+	additionalFields?: IDataObject,
+): IDataObject {
+	if (format === 'json') {
+		const message = this.getNodeParameter('richMessageJson', index, undefined, {
+			ensureType: 'object',
+		}) as IDataObject;
+		if (
+			!message ||
+			typeof message !== 'object' ||
+			Array.isArray(message) ||
+			[message.html, message.markdown, message.blocks].filter((value) => value !== undefined)
+				.length !== 1
+		) {
+			throw new NodeOperationError(
+				this.getNode(),
+				'Set exactly one of html, markdown, or blocks in Rich Message JSON',
+				{ itemIndex: index },
+			);
+		}
+		return message;
+	}
+
+	const text = this.getNodeParameter('richMessageText', index) as string;
+	const { is_rtl, skip_entity_detection, preserveLineBreaks } =
+		additionalFields ?? this.getNodeParameter('additionalFields', index);
+	const content = preserveLineBreaks ? materializeRichMessageLineBreaks(text, format) : text;
+	return {
+		...(format === 'html' ? { html: content } : { markdown: content }),
+		...(is_rtl !== undefined && { is_rtl }),
+		...(skip_entity_detection !== undefined && { skip_entity_detection }),
+	};
 }
 
 const FENCE_MARKER_REGEX = /^\s*(`{3,}|~{3,})/;

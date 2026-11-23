@@ -1,10 +1,13 @@
 import { mockDeep } from 'vitest-mock-extended';
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	INode,
 	INodeExecutionData,
 	NodeExecutionWithMetadata,
 } from 'n8n-workflow';
+
+import { getNodeParameters } from 'n8n-workflow';
 
 import * as GenericFunctions from '../GenericFunctions';
 import { Telegram } from '../Telegram.node';
@@ -1255,6 +1258,134 @@ describe('Telegram node', () => {
 	});
 
 	describe('message:editMessageText', () => {
+		const inlineEdit = {
+			resource: 'message',
+			operation: 'editMessageText',
+			messageType: 'inlineMessage',
+			inlineMessageId: 'inline-id',
+			replyMarkup: 'none',
+		};
+
+		beforeEach(() => {
+			executeFunctionsMock.helpers.returnJsonArray.mockImplementation((data) =>
+				(Array.isArray(data) ? data : [data]).map((json) => ({ json })),
+			);
+		});
+
+		it.each(['sendRichMessage', 'sendRichMessageDraft'])(
+			'uses the default HTML format when switching from a JSON edit to %s',
+			(operation) => {
+				const { description } = node;
+				const saved = getNodeParameters(
+					description.properties,
+					{ ...inlineEdit, editContentFormat: 'json' },
+					false,
+					false,
+					null,
+					description,
+				);
+				const parameters = getNodeParameters(
+					description.properties,
+					{ ...saved, operation },
+					true,
+					false,
+					null,
+					description,
+				);
+				expect(parameters).toMatchObject({
+					richFormat: 'html',
+					richMessageText: '',
+					additionalFields: {},
+				});
+				expect(parameters).not.toHaveProperty('editContentFormat');
+			},
+		);
+
+		it.each([
+			{
+				name: 'Markdown with line breaks',
+				parameters: {
+					editContentFormat: 'markdown',
+					richMessageText: 'First\nSecond',
+					additionalFields: { preserveLineBreaks: true, skip_entity_detection: false },
+				},
+				expected: { markdown: 'First<br>\nSecond', skip_entity_detection: false },
+			},
+			{
+				name: 'native blocks',
+				parameters: {
+					editContentFormat: 'json',
+					richMessageJson: { blocks: [{ type: 'divider' }, { type: 'footer', text: 'Updated' }] },
+				},
+				expected: { blocks: [{ type: 'divider' }, { type: 'footer', text: 'Updated' }] },
+			},
+			{
+				name: 'HTML with referenced media',
+				parameters: {
+					editContentFormat: 'json',
+					richMessageJson: {
+						html: '<img src="tg://photo?id=cover"/>',
+						media: [{ id: 'cover', media: { type: 'photo', media: 'file-id' } }],
+						is_rtl: true,
+					},
+				},
+				expected: {
+					html: '<img src="tg://photo?id=cover"/>',
+					media: [{ id: 'cover', media: { type: 'photo', media: 'file-id' } }],
+					is_rtl: true,
+				},
+			},
+		])('edits inline content using $name', async ({ parameters, expected }) => {
+			const values: IDataObject = { ...inlineEdit, ...parameters };
+			executeFunctionsMock.getNodeParameter.mockImplementation((key) => values[key]);
+			apiRequestSpy.mockResolvedValue({ ok: true, result: true });
+
+			await node.execute.call(executeFunctionsMock);
+
+			expect(apiRequestSpy).toHaveBeenCalledWith(
+				'POST',
+				'editMessageText',
+				{ inline_message_id: 'inline-id', rich_message: expected },
+				{},
+			);
+		});
+
+		it('keeps regular text and parse mode for edits saved without a content format', async () => {
+			const values: IDataObject = {
+				...inlineEdit,
+				text: '<b>Updated</b>',
+				additionalFields: { parse_mode: 'HTML', disable_web_page_preview: true },
+			};
+			executeFunctionsMock.getNodeParameter.mockImplementation((key) => values[key]);
+			apiRequestSpy.mockResolvedValue({ ok: true, result: true });
+
+			await node.execute.call(executeFunctionsMock);
+
+			expect(apiRequestSpy).toHaveBeenCalledWith(
+				'POST',
+				'editMessageText',
+				{
+					inline_message_id: 'inline-id',
+					text: '<b>Updated</b>',
+					parse_mode: 'HTML',
+					disable_web_page_preview: true,
+				},
+				{},
+			);
+		});
+
+		it('rejects competing content fields in a rich message object', async () => {
+			const values: IDataObject = {
+				...inlineEdit,
+				editContentFormat: 'json',
+				richMessageJson: { html: '<b>Hello</b>', markdown: '**Hello**' },
+			};
+			executeFunctionsMock.getNodeParameter.mockImplementation((key) => values[key]);
+
+			await expect(node.execute.call(executeFunctionsMock)).rejects.toThrow('Set exactly one');
+			expect(apiRequestSpy).not.toHaveBeenCalled();
+		});
+
 		it('should work correctly even when protect_content is set in additionalFields', async () => {
 			executeFunctionsMock.getNodeParameter.mockImplementation((p) => {
 				switch (p) {

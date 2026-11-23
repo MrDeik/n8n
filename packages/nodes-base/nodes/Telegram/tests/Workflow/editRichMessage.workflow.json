@@ -1,0 +1,102 @@
+{
+	"name": "Edit a Telegram Rich Message",
+	"nodes": [
+		{
+			"parameters": {},
+			"id": "trigger",
+			"name": "When clicking \"Execute Workflow\"",
+			"type": "n8n-nodes-base.manualTrigger",
+			"typeVersion": 1,
+			"position": [0, 0]
+		},
+		{
+			"parameters": {
+				"operation": "editMessageText",
+				"chatId": "@example",
+				"messageId": "42",
+				"editContentFormat": "html",
+				"richMessageText": "<p><a href=\"tg://user?id=123\">Ada</a></p><hr/><footer>Updated</footer>",
+				"replyMarkup": "inlineKeyboard",
+				"inlineKeyboard": {
+					"rows": [
+						{
+							"row": {
+								"buttons": [
+									{
+										"text": "Refresh",
+										"additionalFields": {
+											"callback_data": "refresh"
+										}
+									}
+								]
+							}
+						}
+					]
+				},
+				"additionalFields": {
+					"is_rtl": false,
+					"skip_entity_detection": true
+				}
+			},
+			"id": "telegram-0",
+			"name": "Edit Rich Message",
+			"type": "n8n-nodes-base.telegram",
+			"typeVersion": 1.2,
+			"position": [300, 0],
+			"credentials": {
+				"telegramApi": {
+					"id": "1",
+					"name": "Telegram account"
+				}
+			}
+		}
+	],
+	"pinData": {
+		"Edit Rich Message": [
+			{
+				"json": {
+					"ok": true,
+					"result": {
+						"message_id": 42,
+						"rich_message": {
+							"blocks": [
+								{
+									"type": "paragraph",
+									"text": {
+										"type": "url",
+										"url": "tg://user?id=123",
+										"text": "Ada"
+									}
+								},
+								{
+									"type": "divider"
+								},
+								{
+									"type": "footer",
+									"text": "Updated"
+								}
+							]
+						}
+					}
+				}
+			}
+		]
+	},
+	"connections": {
+		"When clicking \"Execute Workflow\"": {
+			"main": [
+				[
+					{
+						"node": "Edit Rich Message",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		}
+	},
+	"active": false,
+	"settings": {
+		"executionOrder": "v1"
+	}
+}

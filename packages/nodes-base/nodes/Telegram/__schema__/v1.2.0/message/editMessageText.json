@@ -67,6 +67,22 @@
                 "message_id": {
                     "type": "integer"
                 },
+                "rich_message": {
+                    "type": "object",
+                    "properties": {
+                        "blocks": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true,
+                                "properties": {
+                                    "type": { "type": "string" }
+                                }
+                            }
+                        },
+                        "is_rtl": { "type": "boolean" }
+                    }
+                },
                 "text": {
                     "type": "string"
                 }
