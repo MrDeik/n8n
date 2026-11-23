@@ -5,6 +5,7 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	INodeProperties,
 	IHttpRequestMethods,
 	JsonObject,
 } from 'n8n-workflow';
@@ -23,7 +24,7 @@ import {
 	createSendAndWaitMessageBody,
 	fileUrl,
 	getPropertyName,
-	materializeRichMessageLineBreaks,
+	getRichMessage,
 } from './GenericFunctions';
 import { telegramHitlProperties } from './hitl/descriptions';
 import { prepareChatApproval } from './hitl/setup';
@@ -35,6 +36,23 @@ import {
 	getSendAndWaitProperties,
 	SEND_AND_WAIT_WAITING_TOOLTIP,
 } from '../../utils/sendAndWait/utils';
+
+const richFormatOptions = [
+	{ name: 'Markdown', value: 'markdown' },
+	{ name: 'HTML', value: 'html' },
+];
+
+function withEditMessageFormats(formats: string[], property: INodeProperties): INodeProperties[] {
+	return [
+		property,
+		{
+			...property,
+			displayOptions: {
+				show: { resource: ['message'], operation: ['editMessageText'], editContentFormat: formats },
+			},
+		},
+	];
+}
 
 export class Telegram implements INodeType {
 	description: INodeTypeDescription = {
@@ -238,7 +256,7 @@ export class Telegram implements INodeType {
 					{
 						name: 'Edit Message Text',
 						value: 'editMessageText',
-						description: 'Edit a text message',
+						description: 'Edit a text or rich message',
 						action: 'Edit a text message',
 					},
 					{
@@ -844,6 +862,40 @@ export class Telegram implements INodeType {
 				description: 'Unique identifier of the inline message to edit',
 			},
 			{
+				displayName: 'Content Format',
+				name: 'editContentFormat',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: { resource: ['message'], operation: ['editMessageText'] },
+				},
+				options: [
+					{ name: 'Text', value: 'text' },
+					...richFormatOptions,
+					{ name: 'Rich Message JSON', value: 'json' },
+				],
+				default: 'text',
+				description:
+					'Use Text for a regular message. Select HTML, Markdown, or Rich Message JSON to edit a rich message.',
+			},
+			{
+				displayName: 'Rich Message JSON',
+				name: 'richMessageJson',
+				type: 'json',
+				required: true,
+				default: '',
+				placeholder: '{"blocks": [{"type": "paragraph", "text": "Updated"}]}',
+				displayOptions: {
+					show: {
+						resource: ['message'],
+						operation: ['editMessageText'],
+						editContentFormat: ['json'],
+					},
+				},
+				description:
+					'Telegram <a href="https://core.telegram.org/bots/api#inputrichmessage">InputRichMessage</a> object. Set one of html, markdown, or blocks. Include media references and formatting options in the object. Use existing file IDs for inline media.',
+			},
+			{
 				displayName: 'Reply Markup',
 				name: 'replyMarkup',
 				displayOptions: {
@@ -1129,7 +1181,7 @@ export class Telegram implements INodeType {
 			// ----------------------------------
 			//         message:sendMessage
 			// ----------------------------------
-			{
+			...withEditMessageFormats(['text'], {
 				displayName: 'Text',
 				name: 'text',
 				type: 'string',
@@ -1137,12 +1189,12 @@ export class Telegram implements INodeType {
 				default: '',
 				displayOptions: {
 					show: {
-						operation: ['editMessageText', 'sendMessage'],
+						operation: ['sendMessage'],
 						resource: ['message'],
 					},
 				},
 				description: 'Text of the message to be sent',
-			},
+			}),
 
 			// ----------------------------------
 			//         message:sendPhoto
@@ -1208,16 +1260,7 @@ export class Telegram implements INodeType {
 				displayName: 'Format',
 				name: 'richFormat',
 				type: 'options',
-				options: [
-					{
-						name: 'Markdown',
-						value: 'markdown',
-					},
-					{
-						name: 'HTML',
-						value: 'html',
-					},
-				],
+				options: richFormatOptions,
 				default: 'html',
 				displayOptions: {
 					show: {
@@ -1227,7 +1270,7 @@ export class Telegram implements INodeType {
 				},
 				description: 'Which formatting syntax the rich message content uses',
 			},
-			{
+			...withEditMessageFormats(['html', 'markdown'], {
 				displayName: 'Rich Message',
 				name: 'richMessageText',
 				type: 'string',
@@ -1245,7 +1288,7 @@ export class Telegram implements INodeType {
 				description:
 					'Content of the rich message, written in the selected Markdown or HTML syntax. Supports headings, lists, tables, block quotes, media, collapsible blocks and more.',
 				hint: 'Limits: up to 32768 characters, 500 blocks and 50 media attachments',
-			},
+			}),
 
 			// ----------------------------------
 			//         message:editMessageText/sendAnimation/sendAudio/sendLocation/sendMessage/sendPhoto/sendSticker/sendVideo
@@ -1610,7 +1653,7 @@ export class Telegram implements INodeType {
 				],
 			},
 
-			{
+			...withEditMessageFormats(['text'], {
 				displayName: 'Additional Fields',
 				name: 'additionalFields',
 				type: 'collection',
@@ -1618,7 +1661,6 @@ export class Telegram implements INodeType {
 				displayOptions: {
 					show: {
 						operation: [
-							'editMessageText',
 							'sendAnimation',
 							'sendAudio',
 							'sendDocument',
@@ -1873,7 +1915,7 @@ export class Telegram implements INodeType {
 							'Whether to protect the contents of the sent message from forwarding and saving',
 					},
 				],
-			},
+			}),
 
 			// ----------------------------------
 			//   message:sendMessageDraft/sendRichMessageDraft
@@ -1960,7 +2002,7 @@ export class Telegram implements INodeType {
 			// ----------------------------------
 			//   message:sendRichMessage/sendRichMessageDraft additional fields
 			// ----------------------------------
-			{
+			...withEditMessageFormats(['html', 'markdown'], {
 				displayName: 'Additional Fields',
 				name: 'additionalFields',
 				type: 'collection',
@@ -2003,6 +2045,7 @@ export class Telegram implements INodeType {
 						displayName: 'Message Thread ID',
 						name: 'message_thread_id',
 						type: 'number',
+						displayOptions: { hide: { '/operation': ['editMessageText'] } },
 						default: 0,
 						description: 'The unique identifier of the forum topic',
 					},
@@ -2043,7 +2086,7 @@ export class Telegram implements INodeType {
 							'Whether to skip automatic detection of entities such as URLs, emails, mentions, hashtags and phone numbers',
 					},
 				],
-			},
+			}),
 			...getSendAndWaitProperties(
 				[
 					{
@@ -2226,10 +2269,14 @@ export class Telegram implements INodeType {
 							body.message_id = this.getNodeParameter('messageId', i) as string;
 						}
 
-						body.text = this.getNodeParameter('text', i) as string;
-
-						// Add additional fields and replyMarkup
-						addAdditionalFields.call(this, body, i);
+						const format = this.getNodeParameter('editContentFormat', i, 'text');
+						if (format === 'html' || format === 'markdown' || format === 'json') {
+							body.rich_message = getRichMessage.call(this, i, format);
+							addReplyMarkup.call(this, body, i);
+						} else {
+							body.text = this.getNodeParameter('text', i) as string;
+							addAdditionalFields.call(this, body, i);
+						}
 					} else if (operation === 'deleteMessage') {
 						// ----------------------------------
 						//       message:deleteMessage
@@ -2429,24 +2476,8 @@ export class Telegram implements INodeType {
 						}
 
 						const format = this.getNodeParameter('richFormat', i) as 'html' | 'markdown';
-						const text = this.getNodeParameter('richMessageText', i) as string;
-						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-						const { is_rtl, skip_entity_detection, preserveLineBreaks } = additionalFields;
-						const content = preserveLineBreaks
-							? materializeRichMessageLineBreaks(text, format)
-							: text;
-
-						// InputRichMessage requires exactly one of `html` or `markdown`
-						const richMessage: IDataObject =
-							format === 'html' ? { html: content } : { markdown: content };
-						if (is_rtl !== undefined) {
-							richMessage.is_rtl = is_rtl;
-						}
-						if (skip_entity_detection !== undefined) {
-							richMessage.skip_entity_detection = skip_entity_detection;
-						}
-
-						body.rich_message = richMessage;
+						const additionalFields = this.getNodeParameter('additionalFields', i);
+						body.rich_message = getRichMessage.call(this, i, format, additionalFields);
 
 						// Assign only the fields consumed by the sendRichMessage API
 						if (additionalFields.disable_notification !== undefined) {
