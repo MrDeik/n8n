@@ -1,0 +1,81 @@
+name: Telegram node verification
+on:
+  push:
+    branches: [ci/telegram-rich-edit]
+
+permissions: {}
+
+env:
+  COMMIT: 9b8df497c3a1c87a00d185835dfd9d61a3cd70f4
+
+jobs:
+  telegram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      TURBO_TELEMETRY_DISABLED: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Verify checkout
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b
+        with:
+          version: 12.4.2
+          install: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 26.13.0
+          package-manager-cache: false
+      - name: Install workspace dependencies
+        run: pnpm --filter 'n8n-nodes-base...' --filter n8n-monorepo install --frozen-lockfile
+      - name: Build the node package and its dependencies
+        run: pnpm exec turbo run build --filter=n8n-nodes-base --concurrency=2
+      - name: Run the Telegram unit and workflow tests
+        run: N8N_USER_FOLDER="$RUNNER_TEMP/telegram-test-home" pnpm --filter n8n-nodes-base test nodes/Telegram/tests --maxWorkers=1
+      - name: Check package types
+        run: pnpm --filter n8n-nodes-base typecheck
+      - name: Check formatting and lint changed files
+        working-directory: packages/nodes-base
+        run: |
+          files=(nodes/Telegram/GenericFunctions.ts nodes/Telegram/Telegram.node.ts nodes/Telegram/tests/Telegram.node.test.ts nodes/Telegram/tests/Workflow/workflow.test.ts)
+          pnpm exec biome ci "${files[@]}" nodes/Telegram/tests/Workflow/editRichMessage.workflow.json
+          pnpm exec oxlint --quiet "${files[@]}"
+          pnpm exec eslint --config eslint.oxlint-residual.config.mjs --quiet "${files[@]}"
+
+  report:
+    needs: telegram
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Attach the test job result to the verified PR commit
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          RESULT: ${{ needs.telegram.result }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: 1 });
+            if (pr.head.sha !== process.env.COMMIT) {
+              core.setFailed('The PR head has changed since this test run.');
+              return;
+            }
+            const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${context.runId}`;
+            await github.rest.checks.create({
+              ...context.repo, name: 'Telegram node (fork CI)', head_sha: pr.head.sha,
+              status: 'completed', conclusion: process.env.RESULT, details_url: url,
+              output: {
+                title: 'Telegram build, tests, type check, and lint',
+                summary: `Test job result: **${process.env.RESULT}**. [Open the workflow log](${url}).`
+              }
+            });
